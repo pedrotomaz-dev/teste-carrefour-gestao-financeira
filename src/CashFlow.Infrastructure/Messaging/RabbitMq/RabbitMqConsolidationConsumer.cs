@@ -58,7 +58,16 @@ public class RabbitMqConsolidationConsumer(
 
         logger.LogInformation("Consumidor de consolidação (RabbitMQ) pronto na fila '{Queue}'.", _options.Queue);
 
-        await Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+        // O trabalho real acontece nos callbacks de ReceivedAsync; este método só precisa
+        // permanecer ativo até o worker ser encerrado.
+        try
+        {
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Encerramento normal do worker (docker stop / Ctrl+C).
+        }
     }
 
     private async Task OnMessageReceivedAsync(IChannel channel, BasicDeliverEventArgs delivery, CancellationToken stoppingToken)
