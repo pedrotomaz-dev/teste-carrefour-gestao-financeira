@@ -17,6 +17,13 @@ RUN dotnet publish src/CashFlow.ConsolidationWorker/CashFlow.ConsolidationWorker
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
 WORKDIR /app
+
+# libgssapi-krb5-2: sem ela o Npgsql loga um aviso de biblioteca ausente (não fatal, mas
+# poluía o log) ao negociar a conexão com o Postgres.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app .
 
 ENTRYPOINT ["dotnet", "CashFlow.ConsolidationWorker.dll"]
