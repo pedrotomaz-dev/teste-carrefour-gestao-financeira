@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CashFlow.Api/CashFlow.Api.csproj" />
+    <Project Path="src/CashFlow.Application/CashFlow.Application.csproj" />
+    <Project Path="src/CashFlow.ConsolidationWorker/CashFlow.ConsolidationWorker.csproj" />
+    <Project Path="src/CashFlow.Domain/CashFlow.Domain.csproj" />
+    <Project Path="src/CashFlow.Infrastructure/CashFlow.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CashFlow.Api.Tests/CashFlow.Api.Tests.csproj" />
+    <Project Path="tests/CashFlow.Application.Tests/CashFlow.Application.Tests.csproj" />
+    <Project Path="tests/CashFlow.Domain.Tests/CashFlow.Domain.Tests.csproj" />
+  </Folder>
+</Solution>
