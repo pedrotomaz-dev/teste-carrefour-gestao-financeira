@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY CashFlow.sln .
+COPY CashFlow.slnx .
 COPY src/CashFlow.Domain/CashFlow.Domain.csproj src/CashFlow.Domain/
 COPY src/CashFlow.Application/CashFlow.Application.csproj src/CashFlow.Application/
 COPY src/CashFlow.Infrastructure/CashFlow.Infrastructure.csproj src/CashFlow.Infrastructure/
