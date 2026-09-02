@@ -1,0 +1,35 @@
+@CashFlow.Api_HostAddress = http://localhost:5080
+
+### Health check
+GET {{CashFlow.Api_HostAddress}}/health
+
+### Registrar um crédito
+POST {{CashFlow.Api_HostAddress}}/api/lancamentos
+Content-Type: application/json
+
+{
+  "description": "Venda no cartão",
+  "amount": 150.75,
+  "type": 1,
+  "occurredOn": "2026-09-01"
+}
+
+### Registrar um débito
+POST {{CashFlow.Api_HostAddress}}/api/lancamentos
+Content-Type: application/json
+
+{
+  "description": "Pagamento de fornecedor",
+  "amount": 60.00,
+  "type": 2,
+  "occurredOn": "2026-09-01"
+}
+
+### Listar lançamentos
+GET {{CashFlow.Api_HostAddress}}/api/lancamentos?page=1&pageSize=20
+
+### Saldo consolidado do dia (pode levar ~1-2s após o lançamento até o outbox despachar)
+GET {{CashFlow.Api_HostAddress}}/api/saldo-diario/2026-09-01
+
+### Saldo consolidado por período
+GET {{CashFlow.Api_HostAddress}}/api/saldo-diario?from=2026-08-25&to=2026-09-01
