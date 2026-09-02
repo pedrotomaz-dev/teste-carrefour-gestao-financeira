@@ -19,7 +19,9 @@ public class CashEntriesController(ISender sender) : ControllerBase
     public async Task<ActionResult<Guid>> Register([FromBody] RegisterCashEntryCommand command, CancellationToken cancellationToken)
     {
         var id = await sender.Send(command, cancellationToken);
-        return CreatedAtAction(nameof(List), new { id }, id);
+        // Não há endpoint de busca por Id individual (fora do escopo do desafio); o Location
+        // aponta para a listagem, que é onde o recurso criado pode ser encontrado.
+        return Created("/api/lancamentos", id);
     }
 
     /// <summary>Lista lançamentos, com filtros opcionais de período e tipo.</summary>
