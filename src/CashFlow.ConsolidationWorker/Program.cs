@@ -2,6 +2,7 @@ using CashFlow.Application;
 using CashFlow.Infrastructure;
 using CashFlow.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Serilog;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -21,8 +22,7 @@ var host = builder.Build();
 using (var scope = host.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ConsolidationDbContext>();
-    await dbContext.Database.EnsureCreatedAsync();
-    await SqlitePragmaConfigurator.ApplyAsync(dbContext);
+    await DatabaseInitializer.InitializeAsync(dbContext, scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
 }
 
 await host.RunAsync();

@@ -36,8 +36,7 @@ using (var scope = app.Services.CreateScope())
     // EnsureCreated (em vez de Migrations) para manter a avaliação local simples e permitir os
     // dois providers (Sqlite/Postgres) sem manter dois conjuntos de migrations — ver README,
     // seção "Melhorias futuras", para o caminho de evolução com Migrations versionadas.
-    await dbContext.Database.EnsureCreatedAsync();
-    await SqlitePragmaConfigurator.ApplyAsync(dbContext);
+    await DatabaseInitializer.InitializeAsync(dbContext, app.Services.GetRequiredService<ILogger<Program>>());
 }
 
 app.UseSerilogRequestLogging();
