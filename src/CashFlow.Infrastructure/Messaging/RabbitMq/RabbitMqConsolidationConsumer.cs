@@ -45,11 +45,38 @@ public class RabbitMqConsolidationConsumer(
             })
             .Build();
 
-        var connection = await connectionProvider.GetConnectionAsync(stoppingToken);
-        var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
+        // No docker-compose, o container do worker pode terminar de subir antes de o listener
+        // AMQP do RabbitMQ estar de fato aceitando conexões (o healthcheck do container passa
+        // um instante antes disso). Sem retry aqui, essa janela transitória derrubava o worker
+        // inteiro (BackgroundServiceExceptionBehavior.StopHost é o padrão) — o próprio serviço
+        // responsável por resiliência não tolerava a indisponibilidade momentânea do broker.
+        var startupPipeline = new ResiliencePipelineBuilder()
+            .AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = int.MaxValue,
+                BackoffType = DelayBackoffType.Exponential,
+                Delay = TimeSpan.FromSeconds(1),
+                MaxDelay = TimeSpan.FromSeconds(30),
+                OnRetry = args =>
+                {
+                    logger.LogWarning(
+                        args.Outcome.Exception,
+                        "RabbitMQ ainda não disponível para o worker (tentativa {Attempt}). Nova tentativa em {Delay}.",
+                        args.AttemptNumber + 1, args.RetryDelay);
+                    return ValueTask.CompletedTask;
+                }
+            })
+            .Build();
 
-        await RabbitMqTopology.DeclareAsync(channel, _options, stoppingToken);
-        await channel.BasicQosAsync(0, _options.PrefetchCount, global: false, stoppingToken);
+        IChannel channel = null!;
+        await startupPipeline.ExecuteAsync(async ct =>
+        {
+            var connection = await connectionProvider.GetConnectionAsync(ct);
+            channel = await connection.CreateChannelAsync(cancellationToken: ct);
+
+            await RabbitMqTopology.DeclareAsync(channel, _options, ct);
+            await channel.BasicQosAsync(0, _options.PrefetchCount, global: false, ct);
+        }, stoppingToken);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += (_, delivery) => OnMessageReceivedAsync(channel, delivery, stoppingToken);
