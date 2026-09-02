@@ -61,6 +61,39 @@ topologia com RabbitMQ + dois processos** — é o que `docker compose up` sobe.
 deliberada de trade-off, documentada explicitamente em vez de fingir uma garantia que o modo
 simplificado não oferece.
 
+### Validado em containers reais (não só na teoria)
+
+A topologia de produção (`docker compose up --build`) foi de fato executada e testada, não só
+projetada no papel — inclusive o cenário central do requisito não-funcional:
+
+```
+docker compose stop consolidation-worker      # derruba a consolidação de propósito
+curl -X POST .../api/lancamentos ...          # -> 201 Created (Api segue no ar normalmente)
+docker compose start consolidation-worker     # religa
+# o backlog acumulado na fila durável é consumido e consolidado automaticamente, sem replay manual
+```
+
+Esse teste também revelou (e corrigiu) dois problemas reais que só aparecem com múltiplos
+processos concorrentes, documentados aqui porque o raciocínio é tão relevante quanto o fix:
+
+1. **Corrida de `EnsureCreatedAsync` entre Api e Worker no mesmo banco.** Como os dois serviços
+   sobem juntos e apontam para o mesmo Postgres, ambos tentavam criar o schema ao mesmo tempo.
+   Pior: `EnsureCreatedAsync` decide se já existe schema checando apenas se **alguma** tabela
+   existe (`HasTables()`), não se **todas as do modelo atual** existem — como o modelo da Api é
+   um superconjunto do modelo do Worker, se o Worker vencesse a corrida e criasse suas 2 tabelas
+   primeiro, a Api via "já existe tabela" e desistia de criar as suas (`CashEntries`/
+   `OutboxMessages`), quebrando silenciosamente, sem lançar exceção. Corrigido fazendo o
+   `ConsolidationDbContext` mapear o mesmo conjunto completo de tabelas do `AppDbContext`
+   (`ConsolidationDbContext.cs`) — assim, não importa quem vença a corrida, o schema criado é
+   sempre o completo — combinado com um `DatabaseInitializer` com retry para o caso mais simples
+   de duas tentativas de `CREATE TABLE` simultâneas.
+2. **Worker derrubava o processo inteiro se o RabbitMQ ainda não estivesse aceitando conexões.**
+   O healthcheck do container do RabbitMQ passa um instante antes de o listener AMQP aceitar
+   conexões de verdade; sem retry, essa janela derrubava o `BackgroundService` (e, por padrão,
+   o host inteiro junto). Corrigido com um retry de backoff exponencial (sem limite de tentativas,
+   até 30s entre elas) ao redor da conexão inicial em `RabbitMqConsolidationConsumer` — o próprio
+   componente responsável por resiliência precisava ser resiliente à sua própria inicialização.
+
 ## Por que Transactional Outbox em vez de publicar direto no handler
 
 Se o `RegisterCashEntryCommandHandler` publicasse no RabbitMQ diretamente após o `SaveChanges`,
