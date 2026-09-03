@@ -9,6 +9,7 @@ lançamentos financeiros (créditos e débitos) e consultar o saldo diário cons
 ## Sumário
 
 - [Visão geral](#visão-geral)
+- [Desenho da solução](#desenho-da-solução)
 - [Stack técnica](#stack-técnica)
 - [Pré-requisitos](#pré-requisitos)
 - [Como rodar](#como-rodar)
@@ -33,6 +34,48 @@ explícito do desafio):
 
 Os dois compartilham `CashFlow.Domain` e `CashFlow.Application` (Clean Architecture), mas rodam
 como processos independentes.
+
+## Desenho da solução
+
+```mermaid
+flowchart LR
+    subgraph Cliente
+        C[Cliente HTTP]
+    end
+
+    subgraph "CashFlow.Api (Lançamentos)"
+        API[Controllers]
+        APP1[Application: CQRS / MediatR]
+        DB1[(Postgres/SQLite<br/>CashEntries + Outbox)]
+        OUT[OutboxDispatcher<br/>BackgroundService]
+    end
+
+    subgraph Mensageria
+        MQ[[RabbitMQ<br/>fila cashflow.consolidation]]
+        DLQ[[Dead Letter Queue]]
+    end
+
+    subgraph "CashFlow.ConsolidationWorker"
+        CONS[Consumer<br/>bulkhead + retry]
+        APP2[Application: ConsolidateCashEntry]
+        DB2[(Postgres<br/>DailyBalances + ProcessedEvents)]
+    end
+
+    C -->|POST /api/lancamentos| API --> APP1 --> DB1
+    DB1 -->|lê pendentes| OUT
+    OUT -->|publica com retry/circuit breaker| MQ
+    MQ --> CONS --> APP2 --> DB2
+    CONS -->|sobrecarga: rejeita sem reenfileirar| DLQ
+    C -->|GET /api/saldo-diario| API -->|lê read model| DB1
+    DB2 -.->|mesma base física, tabela DailyBalances| DB1
+```
+
+Dois serviços desacoplados por um Outbox + fila durável: a Api de lançamentos nunca depende da
+disponibilidade da consolidação para responder. O diagrama de sequência do fluxo completo (do
+`POST` até o saldo aparecer) e o diagrama do cenário de resiliência (worker caindo e voltando, já
+testado de verdade em containers) estão em
+[`docs/architecture.md`](docs/architecture.md#fluxo-de-um-lançamento-passo-a-passo) — junto com o
+raciocínio por trás de cada decisão técnica.
 
 ## Stack técnica
 

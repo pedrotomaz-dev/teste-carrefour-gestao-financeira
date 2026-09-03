@@ -43,6 +43,69 @@ flowchart LR
     DB2 -.->|mesma base física, tabela DailyBalances| DB1
 ```
 
+## Fluxo de um lançamento, passo a passo
+
+```mermaid
+sequenceDiagram
+    actor Lojista
+    participant Api as CashFlow.Api
+    participant DB as Postgres (CashEntries + Outbox)
+    participant Dispatcher as OutboxDispatcher
+    participant MQ as RabbitMQ
+    participant Worker as ConsolidationWorker
+    participant DB2 as Postgres (DailyBalances)
+
+    Lojista->>Api: POST /api/lancamentos
+    Api->>DB: INSERT CashEntry + OutboxMessage (1 transação)
+    DB-->>Api: OK
+    Api-->>Lojista: 201 Created
+    Note over Api,DB: A resposta já foi dada — tudo daqui pra baixo é assíncrono.
+
+    loop a cada 2s (produção) / 1s (testes)
+        Dispatcher->>DB: SELECT outbox pendente
+        Dispatcher->>MQ: publish (retry + circuit breaker)
+        Dispatcher->>DB: marca como processado
+    end
+
+    MQ->>Worker: entrega da mensagem (at-least-once)
+    Worker->>DB2: já processei este EventId? (Inbox)
+    alt evento novo
+        Worker->>DB2: upsert DailyBalance do dia
+        Worker->>MQ: ack
+    else evento duplicado (reentrega)
+        Worker->>MQ: ack (no-op idempotente)
+    end
+
+    Lojista->>Api: GET /api/saldo-diario/{data}
+    Api->>DB2: SELECT DailyBalance
+    Api-->>Lojista: saldo consolidado
+```
+
+## Cenário de resiliência: consolidação fora do ar
+
+Testado de verdade em containers (`docker compose stop/start consolidation-worker`), não só
+projetado — ver detalhes na seção "Validado em containers reais" mais abaixo.
+
+```mermaid
+sequenceDiagram
+    actor Lojista
+    participant Api as CashFlow.Api
+    participant MQ as RabbitMQ
+    participant Worker as ConsolidationWorker
+
+    Note over Worker: Worker derrubado de propósito (docker compose stop)
+    Lojista->>Api: POST /api/lancamentos
+    Api->>Api: grava CashEntry + Outbox normalmente
+    Api-->>Lojista: 201 Created ✅ (nem percebe que o worker está fora)
+    Api->>MQ: outbox publica normalmente (broker está de pé)
+    Note over MQ: Mensagem fica durável na fila,<br/>esperando um consumidor
+
+    Note over Worker: Worker religado (docker compose start)
+    Worker->>MQ: reconecta (com retry se preciso)
+    MQ->>Worker: entrega o backlog acumulado
+    Worker->>Worker: consolida tudo automaticamente,<br/>sem intervenção manual
+```
+
 ## Duas topologias de execução
 
 O código suporta duas formas de rodar, trocadas só por configuração (`Messaging:Provider`,
