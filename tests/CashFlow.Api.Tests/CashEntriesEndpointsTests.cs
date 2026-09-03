@@ -65,12 +65,14 @@ public class CashEntriesEndpointsTests : IClassFixture<CashFlowApiFactory>
         credit.EnsureSuccessStatusCode();
         debit.EnsureSuccessStatusCode();
 
-        var balance = await PollUntilBalanceExistsAsync(date);
+        // As duas mensagens (crédito e débito) são consolidadas de forma assíncrona e
+        // independente uma da outra — não basta esperar a linha de saldo existir (ela pode
+        // aparecer já com o crédito aplicado e o débito ainda em trânsito); é preciso esperar o
+        // valor final esperado, senão o teste fica intermitente.
+        var balance = await PollUntilAsync(date, b => b.TotalCredits == 200m && b.TotalDebits == 80m);
 
-        balance.Should().NotBeNull();
-        balance!.TotalCredits.Should().Be(200m);
-        balance.TotalDebits.Should().Be(80m);
-        balance.Balance.Should().Be(120m);
+        balance.Should().NotBeNull("o worker deveria ter consolidado os dois lançamentos dentro do timeout");
+        balance!.Balance.Should().Be(120m);
     }
 
     [Fact]
@@ -81,9 +83,10 @@ public class CashEntriesEndpointsTests : IClassFixture<CashFlowApiFactory>
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    private async Task<DailyBalanceDto?> PollUntilBalanceExistsAsync(string date)
+    private async Task<DailyBalanceDto?> PollUntilAsync(string date, Func<DailyBalanceDto, bool> isExpected)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
+        DailyBalanceDto? lastSeen = null;
 
         while (DateTime.UtcNow < deadline)
         {
@@ -91,12 +94,18 @@ public class CashEntriesEndpointsTests : IClassFixture<CashFlowApiFactory>
 
             if (response.StatusCode == HttpStatusCode.OK)
             {
-                return await response.Content.ReadFromJsonAsync<DailyBalanceDto>();
+                lastSeen = await response.Content.ReadFromJsonAsync<DailyBalanceDto>();
+                if (lastSeen is not null && isExpected(lastSeen))
+                {
+                    return lastSeen;
+                }
             }
 
             await Task.Delay(250);
         }
 
-        return null;
+        // Retorna o último estado observado (mesmo que parcial) para a asserção do teste falhar
+        // com um diagnóstico útil, em vez de simplesmente "null".
+        return lastSeen;
     }
 }
